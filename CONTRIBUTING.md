@@ -3,6 +3,7 @@
 ## Branch Strategy
 
 We use a git flow-like strategy:
+
 - **main**: Production-ready code
 - **develop**: Development branch for features and fixes
 - **feature/\***: Feature branches created from `develop`
@@ -11,27 +12,31 @@ We use a git flow-like strategy:
 ## Making Changes
 
 1. Create a feature branch from `develop`:
-   ```bash
-   git checkout develop
-   git pull origin develop
-   git checkout -b feature/your-feature-name
-   ```
+
+    ```bash
+    git checkout develop
+    git pull origin develop
+    git checkout -b feature/your-feature-name
+    ```
 
 2. Make your changes and commit with clear messages:
-   ```bash
-   git commit -m "feat: add new feature description"
-   ```
+
+    ```bash
+    git commit -m "feat: add new feature description"
+    ```
 
 3. Push your branch:
-   ```bash
-   git push origin feature/your-feature-name
-   ```
+
+    ```bash
+    git push origin feature/your-feature-name
+    ```
 
 4. Create a Pull Request on GitHub targeting the `develop` branch
 
 ## Commit Message Convention
 
 Follow conventional commits:
+
 - `feat:` for new features
 - `fix:` for bug fixes
 - `docs:` for documentation changes
