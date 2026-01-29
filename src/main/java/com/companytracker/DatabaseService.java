@@ -97,6 +97,21 @@ public class DatabaseService implements StorageService {
         return null;
     }
 
+    public void removeCompany(String companyName) throws SQLException {
+        String sql = "DELETE FROM companies WHERE name = ?";
+
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, companyName);
+            int rowsAffected = pstmt.executeUpdate();
+
+            if (rowsAffected == 0) {
+                throw new SQLException("Company not found: " + companyName);
+            }
+
+            System.out.println("Removed company: " + companyName);
+        }
+    }
+
     public void close() throws SQLException {
         if (connection != null && !connection.isClosed()) {
             connection.close();
