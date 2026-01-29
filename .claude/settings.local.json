@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl:*)",
+      "Bash(chmod:*)",
+      "Bash(gh:*)",
+      "Bash(./mvnw clean compile:*)",
+      "Bash(mvnw.cmd clean compile:*)",
+      "Bash(javac:*)"
+    ]
+  }
+}
