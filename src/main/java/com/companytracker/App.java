@@ -39,6 +39,9 @@ public class App {
                         checkAllCompanies();
                         break;
                     case "5":
+                        removeCompany();
+                        break;
+                    case "6":
                         running = false;
                         System.out.println("Goodbye!");
                         break;
@@ -62,7 +65,8 @@ public class App {
         System.out.println("2. Check if a company has a website");
         System.out.println("3. List all companies");
         System.out.println("4. Check all companies for websites");
-        System.out.println("5. Exit");
+        System.out.println("5. Remove a company");
+        System.out.println("6. Exit");
         System.out.print("Your choice: ");
     }
 
@@ -163,6 +167,28 @@ public class App {
         }
 
         System.out.println("\nFinished checking all companies!");
+    }
+
+    private void removeCompany() throws Exception {
+        System.out.print("Enter company name to remove: ");
+        String name = scanner.nextLine().trim();
+
+        if (name.isEmpty()) {
+            System.out.println("Company name cannot be empty.");
+            return;
+        }
+
+        // Confirm deletion
+        System.out.print("Are you sure you want to remove '" + name + "'? (yes/no): ");
+        String confirmation = scanner.nextLine().trim().toLowerCase();
+
+        if (!confirmation.equals("yes")) {
+            System.out.println("Removal cancelled.");
+            return;
+        }
+
+        storageService.removeCompany(name);
+        System.out.println("Company removed successfully!");
     }
 
     private void cleanup() {
