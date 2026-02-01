@@ -1,6 +1,5 @@
 package com.companytracker;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Scanner;
 
@@ -9,8 +8,8 @@ public class App {
     private SearchService searchService;
     private Scanner scanner;
 
-    public App() throws IOException {
-        this.storageService = new CSVService();
+    public App() throws Exception {
+        this.storageService = new DatabaseService();
         this.searchService = new SearchService();
         this.scanner = new Scanner(System.in);
     }

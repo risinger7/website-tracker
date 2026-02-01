@@ -61,15 +61,8 @@ public class DatabaseService implements StorageService {
 
         try (Statement stmt = connection.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
-
             while (rs.next()) {
-                Company company = new Company();
-                company.setId(rs.getInt("id"));
-                company.setName(rs.getString("name"));
-                company.setWebsite(rs.getString("website"));
-                company.setHasWebsite(rs.getInt("has_website") == 1);
-                company.setCreatedAt(rs.getString("created_at"));
-                companies.add(company);
+                companies.add(mapResultSetToCompany(rs));
             }
         }
 
@@ -84,17 +77,21 @@ public class DatabaseService implements StorageService {
             ResultSet rs = pstmt.executeQuery();
 
             if (rs.next()) {
-                Company company = new Company();
-                company.setId(rs.getInt("id"));
-                company.setName(rs.getString("name"));
-                company.setWebsite(rs.getString("website"));
-                company.setHasWebsite(rs.getInt("has_website") == 1);
-                company.setCreatedAt(rs.getString("created_at"));
-                return company;
+                return mapResultSetToCompany(rs);
             }
         }
 
         return null;
+    }
+
+    private Company mapResultSetToCompany(ResultSet rs) throws SQLException {
+        Company company = new Company();
+        company.setId(rs.getInt("id"));
+        company.setName(rs.getString("name"));
+        company.setWebsite(rs.getString("website"));
+        company.setHasWebsite(rs.getInt("has_website") == 1);
+        company.setCreatedAt(rs.getString("created_at"));
+        return company;
     }
 
     public void removeCompany(String companyName) throws SQLException {

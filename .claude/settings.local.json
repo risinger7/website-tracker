@@ -1,12 +1,17 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(curl:*)",
-      "Bash(chmod:*)",
-      "Bash(gh:*)",
-      "Bash(./mvnw clean compile:*)",
-      "Bash(mvnw.cmd clean compile:*)",
-      "Bash(javac:*)"
-    ]
-  }
+    "permissions": {
+        "defaultMode": "dontAsk",
+        "allow": [
+            "Bash(curl:*)",
+            "Bash(chmod:*)",
+            "Bash(gh:*)",
+            "Bash(./mvnw clean compile:*)",
+            "Bash(mvnw.cmd clean compile:*)",
+            "Bash(javac:*)",
+            "Bash(npm run *),",
+            "Bash(git status)",
+            "Edit(src(**)",
+            "Read(src(**)"
+        ]
+    }
 }

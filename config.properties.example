@@ -1,0 +1,16 @@
+# LangSearch API Configuration
+# Get your free API key from: https://langsearch.com/api-keys
+#
+# NOTE: It's recommended to use .env.local instead of this file
+# Copy .env.example to .env.local and add your API key there
+
+# LangSearch API Key
+langsearch.api.key=YOUR-API-KEY-HERE
+
+# Optional: API URL
+langsearch.api.url=https://api.langsearch.com/v1/web-search
+
+# Search Settings
+langsearch.freshness=noLimit
+langsearch.summary=true
+langsearch.results.count=10
