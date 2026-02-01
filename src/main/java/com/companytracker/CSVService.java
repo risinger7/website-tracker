@@ -121,21 +121,12 @@ public class CSVService implements StorageService {
     @Override
     public void removeCompany(String companyName) throws IOException {
         List<Company> companies = getAllCompanies();
-        boolean found = false;
+        boolean removed = companies.removeIf(c -> c.getName().equalsIgnoreCase(companyName));
 
-        for (int i = 0; i < companies.size(); i++) {
-            if (companies.get(i).getName().equalsIgnoreCase(companyName)) {
-                companies.remove(i);
-                found = true;
-                break;
-            }
-        }
-
-        if (!found) {
+        if (!removed) {
             throw new IOException("Company not found: " + companyName);
         }
 
-        // Rewrite entire file with remaining companies
         writeAllCompanies(companies);
         System.out.println("Removed company: " + companyName);
     }

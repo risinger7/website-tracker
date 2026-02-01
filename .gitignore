@@ -1,3 +1,8 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
 # Maven
 target/
 pom.xml.tag
@@ -67,3 +72,6 @@ companies.db
 # OS files
 .DS_Store
 Thumbs.db
+
+# Configuration files with sensitive data
+config.properties
