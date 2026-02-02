@@ -9,6 +9,8 @@ import okhttp3.*;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 
 public class SearchService {
@@ -150,30 +152,48 @@ public class SearchService {
     private SearchResult parseSearchResponse(String jsonResponse) {
         JsonObject json = JsonParser.parseString(jsonResponse).getAsJsonObject();
         SearchResult result = new SearchResult();
+        List<String> allUrls = new ArrayList<>();
 
-        if (json.has("webPages") && json.getAsJsonObject("webPages").has("value")) {
-            JsonArray results = json.getAsJsonObject("webPages").getAsJsonArray("value");
+        // LangSearch wraps the response in a "data" object
+        JsonObject data = json;
+        if (json.has("data") && !json.get("data").isJsonNull()) {
+            data = json.getAsJsonObject("data");
+        }
 
-            if (results.size() > 0) {
-                JsonObject firstResult = results.get(0).getAsJsonObject();
-                result.setHasWebsite(true);
-                result.setWebsiteUrl(firstResult.get("url").getAsString());
+        if (data.has("webPages") && data.getAsJsonObject("webPages").has("value")) {
+            JsonArray results = data.getAsJsonObject("webPages").getAsJsonArray("value");
+
+            for (int i = 0; i < results.size(); i++) {
+                JsonObject item = results.get(i).getAsJsonObject();
+                String url = item.get("url").getAsString();
+                allUrls.add(url);
+
+                if (i == 0) {
+                    result.setHasWebsite(true);
+                    result.setWebsiteUrl(url);
+                }
             }
         }
 
+        result.setAllUrls(allUrls);
         return result;
     }
 
     private SearchResult mockSearch(String companyName) {
         SearchResult result = new SearchResult();
+        String mockUrl = "https://www." + companyName.toLowerCase().replace(" ", "") + ".com";
         result.setHasWebsite(true);
-        result.setWebsiteUrl("https://www." + companyName.toLowerCase().replace(" ", "") + ".com");
+        result.setWebsiteUrl(mockUrl);
+        List<String> mockUrls = new ArrayList<>();
+        mockUrls.add(mockUrl);
+        result.setAllUrls(mockUrls);
         return result;
     }
 
     public static class SearchResult {
         private boolean hasWebsite;
         private String websiteUrl;
+        private List<String> allUrls = new ArrayList<>();
 
         public boolean isHasWebsite() {
             return hasWebsite;
@@ -189,6 +209,14 @@ public class SearchService {
 
         public void setWebsiteUrl(String websiteUrl) {
             this.websiteUrl = websiteUrl;
+        }
+
+        public List<String> getAllUrls() {
+            return allUrls;
+        }
+
+        public void setAllUrls(List<String> allUrls) {
+            this.allUrls = allUrls;
         }
     }
 }

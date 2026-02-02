@@ -95,7 +95,7 @@ public class DatabaseService implements StorageService {
     }
 
     public void removeCompany(String companyName) throws SQLException {
-        String sql = "DELETE FROM companies WHERE name = ?";
+        String sql = "DELETE FROM companies WHERE id = ?";
 
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
             pstmt.setString(1, companyName);
@@ -106,6 +106,8 @@ public class DatabaseService implements StorageService {
             }
 
             System.out.println("Removed company: " + companyName);
+        } catch (SQLException error) {
+            System.out.println("Error removing company: " + error.getMessage());
         }
     }
 
