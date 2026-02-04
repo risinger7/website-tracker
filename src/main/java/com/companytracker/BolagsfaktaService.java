@@ -15,11 +15,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Service for fetching company data from Bolagsfakta.se API.
+ * Retrieves company names and employee counts by business type.
+ */
 public class BolagsfaktaService {
     private final OkHttpClient client;
-
-    private static final String BASE_URL = "https://www.bolagsfakta.se";
-    private static final String SEARCH_ENDPOINT = "/api/search";
+    private static final String API_URL = "https://www.bolagsfakta.se/api/search";
 
     public BolagsfaktaService() {
         this.client = new OkHttpClient.Builder()
@@ -28,223 +30,103 @@ public class BolagsfaktaService {
                 .build();
     }
 
-    public SearchResponse searchCompanies(String query) throws IOException {
-        return searchCompanies(query, 1);
-    }
+    /**
+     * Search for companies by business type.
+     *
+     * @param businessType Type of business to search for (e.g., "Frisör", "Restaurang")
+     * @param maxPages     Maximum pages to fetch (1-5)
+     * @param delayMs      Delay between page requests in milliseconds
+     * @return List of companies with name and employee count
+     */
+    public List<BolagsfaktaCompany> search(String businessType, int maxPages, long delayMs)
+            throws IOException, InterruptedException {
 
-    public SearchResponse searchCompanies(String query, int page) throws IOException {
-        return searchCompanies(query, page, null);
-    }
+        maxPages = Math.min(Math.max(1, maxPages), 5);  // Clamp to 1-5
+        List<BolagsfaktaCompany> allCompanies = new ArrayList<>();
 
-    public SearchResponse searchCompanies(String query, int page, int[] employeeFilters) throws IOException {
-        String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
-        StringBuilder url = new StringBuilder(BASE_URL + SEARCH_ENDPOINT + "?what=" + encodedQuery + "&page=" + page);
+        for (int page = 1; page <= maxPages; page++) {
+            System.out.println("Fetching page " + page + "...");
 
-        if (employeeFilters != null) {
-            for (int filter : employeeFilters) {
-                url.append("&e=").append(filter);
+            List<BolagsfaktaCompany> pageCompanies = fetchPage(businessType, page);
+            allCompanies.addAll(pageCompanies);
+
+            System.out.println("  Found " + pageCompanies.size() + " companies (total: " + allCompanies.size() + ")");
+
+            // Check if there are more pages
+            if (pageCompanies.isEmpty()) {
+                break;
+            }
+
+            // Delay between requests (except after last page)
+            if (page < maxPages) {
+                Thread.sleep(delayMs);
             }
         }
 
+        return allCompanies;
+    }
+
+    /** Fetch a single page of results from the API */
+    private List<BolagsfaktaCompany> fetchPage(String businessType, int page) throws IOException {
+        String encodedQuery = URLEncoder.encode(businessType, StandardCharsets.UTF_8);
+        String url = API_URL + "?what=" + encodedQuery + "&page=" + page;
+
+        // Cloudflare requires realistic browser headers to allow the request
         Request request = new Request.Builder()
-                .url(url.toString())
+                .url(url)
                 .addHeader("Accept", "application/json, text/plain, */*")
+                .addHeader("Accept-Language", "sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7")
                 .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                 .addHeader("Referer", "https://www.bolagsfakta.se/Search?what=" + encodedQuery)
+                .addHeader("Origin", "https://www.bolagsfakta.se")
                 .get()
                 .build();
 
         try (Response response = client.newCall(request).execute()) {
             if (!response.isSuccessful()) {
-                throw new IOException("API request failed with code: " + response.code());
+                throw new IOException("API error: " + response.code());
             }
 
-            String responseBody = response.body().string();
-            return parseSearchResponse(responseBody);
+            String body = response.body().string();
+
+            // Guard against Cloudflare returning HTML instead of JSON
+            if (!body.startsWith("{")) {
+                System.out.println("  Warning: unexpected response from Bolagsfakta (not JSON)");
+                System.out.println("  First 200 chars: " + body.substring(0, Math.min(200, body.length())));
+                return new ArrayList<>();
+            }
+
+            return parseResponse(body);
         }
     }
 
-    public List<BolagsfaktaCompany> searchCompaniesWithEmployeeFilter(String query, int maxEmployees) throws IOException {
-        SearchResponse response = searchCompanies(query);
-        List<BolagsfaktaCompany> filtered = new ArrayList<>();
-
-        for (BolagsfaktaCompany company : response.getCompanies()) {
-            if (company.getAntalAnstallda() <= maxEmployees) {
-                filtered.add(company);
-            }
-        }
-
-        return filtered;
-    }
-
-    private SearchResponse parseSearchResponse(String jsonResponse) {
-        SearchResponse searchResponse = new SearchResponse();
+    /** Parse API response JSON into list of companies */
+    private List<BolagsfaktaCompany> parseResponse(String json) {
         List<BolagsfaktaCompany> companies = new ArrayList<>();
 
-        try {
-            JsonObject json = JsonParser.parseString(jsonResponse).getAsJsonObject();
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
 
-            if (json.has("searchResultItems")) {
-                JsonArray items = json.getAsJsonArray("searchResultItems");
-                for (JsonElement element : items) {
-                    JsonObject item = element.getAsJsonObject();
-                    BolagsfaktaCompany company = parseCompany(item);
-                    companies.add(company);
-                }
-            }
-
-            if (json.has("paging")) {
-                JsonObject paging = json.getAsJsonObject("paging");
-                searchResponse.setTotalPages(getIntOrDefault(paging, "totalPage", 0));
-                searchResponse.setTotalCount(getIntOrDefault(paging, "totalCount", 0));
-                searchResponse.setCurrentPage(getIntOrDefault(paging, "currentPage", 1));
-                searchResponse.setHasNextPage(getBoolOrDefault(paging, "hasNextPage", false));
-                searchResponse.setHasPreviousPage(getBoolOrDefault(paging, "hasPreviousPage", false));
-            }
-
-        } catch (Exception e) {
-            System.err.println("Error parsing response: " + e.getMessage());
-        }
-
-        searchResponse.setCompanies(companies);
-        return searchResponse;
-    }
-
-    private BolagsfaktaCompany parseCompany(JsonObject item) {
-        BolagsfaktaCompany company = new BolagsfaktaCompany();
-
-        company.setOrgNr(getStringOrNull(item, "orgNr"));
-        company.setPostNr(getStringOrNull(item, "postNr"));
-        company.setCompanyCode(getIntOrDefault(item, "companyCode", 0));
-        company.setCompanyName(getStringOrNull(item, "companyName"));
-        company.setCompanyPopularName(getStringOrNull(item, "companyPopularName"));
-        company.setAddress(getStringOrNull(item, "address"));
-        company.setCompanyUrl(getStringOrNull(item, "companyUrl"));
-        company.setSniText(getStringOrNull(item, "sniText"));
-        company.setResponsibleCount(getIntOrDefault(item, "responsibleCount", 0));
-        company.setOmsattning(getDoubleOrDefault(item, "omsattning", 0.0));
-        company.setAntalAnstallda(getDoubleOrDefault(item, "antalAnstallda", 0.0));
-        company.setBolagsform(getStringOrNull(item, "bolagsform"));
-        company.setPostOrt(getStringOrNull(item, "postOrt"));
-
-        return company;
-    }
-
-    private String getStringOrNull(JsonObject obj, String key) {
-        if (obj.has(key) && !obj.get(key).isJsonNull()) {
-            return obj.get(key).getAsString();
-        }
-        return null;
-    }
-
-    private int getIntOrDefault(JsonObject obj, String key, int defaultValue) {
-        if (obj.has(key) && !obj.get(key).isJsonNull()) {
-            return obj.get(key).getAsInt();
-        }
-        return defaultValue;
-    }
-
-    private double getDoubleOrDefault(JsonObject obj, String key, double defaultValue) {
-        if (obj.has(key) && !obj.get(key).isJsonNull()) {
-            return obj.get(key).getAsDouble();
-        }
-        return defaultValue;
-    }
-
-    private boolean getBoolOrDefault(JsonObject obj, String key, boolean defaultValue) {
-        if (obj.has(key) && !obj.get(key).isJsonNull()) {
-            return obj.get(key).getAsBoolean();
-        }
-        return defaultValue;
-    }
-
-    public static class SearchResponse {
-        private List<BolagsfaktaCompany> companies;
-        private int totalPages;
-        private int totalCount;
-        private int currentPage;
-        private boolean hasNextPage;
-        private boolean hasPreviousPage;
-
-        public List<BolagsfaktaCompany> getCompanies() {
+        if (!root.has("searchResultItems")) {
             return companies;
         }
 
-        public void setCompanies(List<BolagsfaktaCompany> companies) {
-            this.companies = companies;
-        }
+        JsonArray items = root.getAsJsonArray("searchResultItems");
+        for (JsonElement element : items) {
+            JsonObject item = element.getAsJsonObject();
+            BolagsfaktaCompany company = new BolagsfaktaCompany();
 
-        public int getTotalPages() {
-            return totalPages;
-        }
-
-        public void setTotalPages(int totalPages) {
-            this.totalPages = totalPages;
-        }
-
-        public int getTotalCount() {
-            return totalCount;
-        }
-
-        public void setTotalCount(int totalCount) {
-            this.totalCount = totalCount;
-        }
-
-        public int getCurrentPage() {
-            return currentPage;
-        }
-
-        public void setCurrentPage(int currentPage) {
-            this.currentPage = currentPage;
-        }
-
-        public boolean isHasNextPage() {
-            return hasNextPage;
-        }
-
-        public void setHasNextPage(boolean hasNextPage) {
-            this.hasNextPage = hasNextPage;
-        }
-
-        public boolean isHasPreviousPage() {
-            return hasPreviousPage;
-        }
-
-        public void setHasPreviousPage(boolean hasPreviousPage) {
-            this.hasPreviousPage = hasPreviousPage;
-        }
-    }
-
-    public static void main(String[] args) {
-        BolagsfaktaService service = new BolagsfaktaService();
-
-        try {
-            System.out.println("Searching for 'Frisör' with employee filter (0-9 employees)...");
-            // e=0 means 0 employees, e=1 means 1-9 employees
-            int[] employeeFilter = {0, 1};
-            SearchResponse response = service.searchCompanies("Frisör", 1, employeeFilter);
-
-            System.out.println("\n=== Search Results ===");
-            System.out.println("Total count: " + response.getTotalCount());
-            System.out.println("Total pages: " + response.getTotalPages());
-            System.out.println("Current page: " + response.getCurrentPage());
-            System.out.println("Has next page: " + response.isHasNextPage());
-            System.out.println("\nCompanies found on this page: " + response.getCompanies().size());
-
-            System.out.println("\n=== First 5 Companies ===");
-            int count = 0;
-            for (BolagsfaktaCompany company : response.getCompanies()) {
-                if (count >= 5) break;
-                System.out.println("- " + company.getCompanyName() +
-                        " (Anställda: " + company.getAntalAnstallda() +
-                        ", Org: " + company.getOrgNr() +
-                        ", Bransch: " + company.getSniText() + ")");
-                count++;
+            if (item.has("companyName") && !item.get("companyName").isJsonNull()) {
+                company.setCompanyName(item.get("companyName").getAsString());
+            }
+            if (item.has("antalAnstallda") && !item.get("antalAnstallda").isJsonNull()) {
+                company.setAntalAnstallda(item.get("antalAnstallda").getAsDouble());
             }
 
-        } catch (IOException e) {
-            System.err.println("Error: " + e.getMessage());
-            e.printStackTrace();
+            if (company.getCompanyName() != null) {
+                companies.add(company);
+            }
         }
+
+        return companies;
     }
 }

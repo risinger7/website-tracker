@@ -3,208 +3,227 @@ package com.companytracker;
 import java.util.List;
 import java.util.Scanner;
 
+/**
+ * Main application for tracking company websites.
+ *
+ * Workflow:
+ * 1. Search Bolagsfakta for companies by business type
+ * 2. Store companies in local database
+ * 3. Search for websites of unchecked companies
+ * 4. View results and manage data
+ */
 public class App {
-    private StorageService storageService;
-    private SearchService searchService;
-    private Scanner scanner;
+    private final StorageService storage;
+    private final BolagsfaktaService bolagsfakta;
+    private final SearchService search;
+    private final Scanner scanner;
 
     public App() throws Exception {
-        this.storageService = new DatabaseService();
-        this.searchService = new SearchService();
+        this.storage = new DatabaseService();
+        this.bolagsfakta = new BolagsfaktaService();
+        this.search = new SearchService();
         this.scanner = new Scanner(System.in);
     }
 
     public void run() {
-        System.out.println("=== Company Website Checker ===");
-        System.out.println("Welcome! This app helps you track companies and check if they have websites.\n");
+        System.out.println("=== Company Website Tracker ===\n");
 
         boolean running = true;
         while (running) {
-            displayMenu();
+            printMenu();
             String choice = scanner.nextLine().trim();
 
             try {
                 switch (choice) {
-                    case "1":
-                        addCompany();
-                        break;
-                    case "2":
-                        checkCompanyWebsite();
-                        break;
-                    case "3":
-                        listAllCompanies();
-                        break;
-                    case "4":
-                        checkAllCompanies();
-                        break;
-                    case "5":
-                        removeCompany();
-                        break;
-                    case "6":
-                        running = false;
-                        System.out.println("Goodbye!");
-                        break;
-                    default:
-                        System.out.println("Invalid option. Please try again.");
+                    case "1" -> fetchCompanies();
+                    case "2" -> checkWebsites();
+                    case "3" -> listCompanies();
+                    case "4" -> resetCompanies();
+                    case "5" -> deleteAllCompanies();
+                    case "6" -> running = false;
+                    default -> System.out.println("Invalid option.");
                 }
             } catch (Exception e) {
                 System.out.println("Error: " + e.getMessage());
-                e.printStackTrace();
             }
-
             System.out.println();
         }
 
         cleanup();
+        System.out.println("Goodbye!");
     }
 
-    private void displayMenu() {
-        System.out.println("Choose an option:");
-        System.out.println("1. Add a company");
-        System.out.println("2. Check if a company has a website");
+    private void printMenu() {
+        System.out.println("1. Fetch companies from Bolagsfakta");
+        System.out.println("2. Check unchecked companies for websites");
         System.out.println("3. List all companies");
-        System.out.println("4. Check all companies for websites");
-        System.out.println("5. Remove a company");
+        System.out.println("4. Reset all (uncheck companies, clear websites)");
+        System.out.println("5. Delete all companies");
         System.out.println("6. Exit");
-        System.out.print("Your choice: ");
+        System.out.print("Choice: ");
     }
 
-    private void addCompany() throws Exception {
-        System.out.print("Enter company name: ");
-        String name = scanner.nextLine().trim();
-
-        if (name.isEmpty()) {
-            System.out.println("Company name cannot be empty.");
+    /**
+     * Fetch companies from Bolagsfakta API and store in database.
+     */
+    private void fetchCompanies() throws Exception {
+        System.out.print("Business type to search: ");
+        String businessType = scanner.nextLine().trim();
+        if (businessType.isEmpty()) {
+            System.out.println("Business type cannot be empty.");
             return;
         }
 
-        Company company = new Company(name);
-        storageService.addCompany(company);
-        System.out.println("Company added successfully!");
-    }
+        System.out.print("Number of pages (1-5): ");
+        int pages = parseIntOrDefault(scanner.nextLine(), 1);
 
-    private void checkCompanyWebsite() throws Exception {
-        System.out.print("Enter company name: ");
-        String name = scanner.nextLine().trim();
+        System.out.println("\nFetching from Bolagsfakta...\n");
 
-        Company company = storageService.getCompanyByName(name);
-        if (company == null) {
-            System.out.println("Company not found. Would you like to add it first? (y/n)");
-            String response = scanner.nextLine().trim().toLowerCase();
-            if (response.equals("y")) {
-                addCompany();
-                company = storageService.getCompanyByName(name);
-            } else {
-                return;
+        try {
+            List<BolagsfaktaCompany> companies = bolagsfakta.search(businessType, pages, 2000);
+
+            System.out.println("\nStoring " + companies.size() + " companies...");
+            for (BolagsfaktaCompany c : companies) {
+                storage.addCompany(c.getCompanyName(), c.getAntalAnstallda());
             }
-        }
+            System.out.println("Done!");
 
-        System.out.println("Searching for website...");
-        SearchService.SearchResult result = searchService.searchCompanyWebsite(name);
-
-        storageService.updateCompanyWebsite(name, result.getWebsiteUrl(), result.isHasWebsite());
-
-        if (result.isHasWebsite()) {
-            System.out.println("✓ Website found: " + result.getWebsiteUrl());
-        } else {
-            System.out.println("✗ No website found for this company.");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            System.out.println("Interrupted.");
         }
     }
 
-    private void listAllCompanies() throws Exception {
-        List<Company> companies = storageService.getAllCompanies();
+    /**
+     * Check all unchecked companies for websites using search API.
+     */
+    private void checkWebsites() throws Exception {
+        List<Company> unchecked = storage.getUncheckedCompanies();
+
+        if (unchecked.isEmpty()) {
+            System.out.println("No unchecked companies.");
+            return;
+        }
+
+        System.out.println("Checking " + unchecked.size() + " companies for websites...\n");
+
+        int found = 0;
+        for (Company company : unchecked) {
+            System.out.print(company.getName() + " ... ");
+
+            SearchService.SearchResult result = search.search(company.getName());
+
+            if (result.hasWebsite()) {
+                storage.updateWebsite(company.getId(), result.getWebsiteUrl(), true);
+                System.out.println("FOUND: " + result.getWebsiteUrl());
+                found++;
+            } else {
+                storage.updateWebsite(company.getId(), null, false);
+                System.out.println("not found");
+            }
+
+            Thread.sleep(500);  // Rate limiting
+        }
+
+        System.out.println("\nDone! Found " + found + " / " + unchecked.size() + " websites.");
+    }
+
+    /**
+     * List all companies with their website status.
+     */
+    private void listCompanies() throws Exception {
+        List<Company> companies = storage.getAllCompanies();
 
         if (companies.isEmpty()) {
-            System.out.println("No companies in storage yet.");
+            System.out.println("No companies in database.");
             return;
         }
 
-        System.out.println("\n=== All Companies ===");
-        System.out.println(String.format("%-5s %-30s %-10s %-50s", "ID", "Name", "Website?", "URL"));
-        System.out.println("-".repeat(100));
+        // Print header
+        System.out.println();
+        System.out.printf("%-4s %-35s %8s %8s %s%n", "ID", "Name", "Empl.", "Website", "URL");
+        System.out.println("-".repeat(90));
 
-        for (Company company : companies) {
-            System.out.println(String.format(
-                    "%-5d %-30s %-10s %-50s",
-                    company.getId(),
-                    company.getName(),
-                    company.isHasWebsite() ? "Yes" : "No",
-                    company.getWebsite() != null ? company.getWebsite() : "N/A"
-            ));
+        // Print companies
+        int withWebsite = 0, withoutWebsite = 0, unchecked = 0;
+
+        for (Company c : companies) {
+            String name = truncate(c.getName(), 33);
+            String url = c.hasWebsite() ? truncate(c.getWebsite(), 35) : "-";
+            String status = !c.isChecked() ? "?" : (c.hasWebsite() ? "Yes" : "No");
+
+            System.out.printf("%-4d %-35s %8.0f %8s %s%n",
+                    c.getId(), name, c.getEmployees(), status, url);
+
+            if (!c.isChecked()) unchecked++;
+            else if (c.hasWebsite()) withWebsite++;
+            else withoutWebsite++;
         }
 
-        System.out.println("\nTotal companies: " + companies.size());
+        // Print summary
+        System.out.println("-".repeat(90));
+        System.out.printf("Total: %d | With website: %d | Without: %d | Unchecked: %d%n",
+                companies.size(), withWebsite, withoutWebsite, unchecked);
     }
 
-    private void checkAllCompanies() throws Exception {
-        List<Company> companies = storageService.getAllCompanies();
-
-        if (companies.isEmpty()) {
-            System.out.println("No companies to check.");
+    /**
+     * Reset all companies to unchecked state (clear website data).
+     */
+    private void resetCompanies() throws Exception {
+        System.out.print("Reset all companies? This clears all website data. (yes/no): ");
+        if (!scanner.nextLine().trim().equalsIgnoreCase("yes")) {
+            System.out.println("Cancelled.");
             return;
         }
 
-        System.out.println("Checking websites for all companies...\n");
-
-        for (Company company : companies) {
-            System.out.println("Checking: " + company.getName());
-            SearchService.SearchResult result = searchService.searchCompanyWebsite(company.getName());
-            storageService.updateCompanyWebsite(company.getName(), result.getWebsiteUrl(), result.isHasWebsite());
-
-            if (result.isHasWebsite()) {
-                System.out.println("  ✓ Found: " + result.getWebsiteUrl());
-            } else {
-                System.out.println("  ✗ Not found");
-            }
-
-            // Small delay to avoid rate limiting
-            try {
-                Thread.sleep(500);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
-        System.out.println("\nFinished checking all companies!");
+        storage.resetAllCompanies();
+        System.out.println("All companies reset to unchecked.");
     }
 
-    private void removeCompany() throws Exception {
-        System.out.print("Enter company name to remove: ");
-        String name = scanner.nextLine().trim();
-
-        if (name.isEmpty()) {
-            System.out.println("Company name cannot be empty.");
+    /**
+     * Delete all companies from the database.
+     */
+    private void deleteAllCompanies() throws Exception {
+        System.out.print("DELETE ALL companies? This cannot be undone! (yes/no): ");
+        if (!scanner.nextLine().trim().equalsIgnoreCase("yes")) {
+            System.out.println("Cancelled.");
             return;
         }
 
-        // Confirm deletion
-        System.out.print("Are you sure you want to remove '" + name + "'? (yes/no): ");
-        String confirmation = scanner.nextLine().trim().toLowerCase();
-
-        if (!confirmation.equals("yes")) {
-            System.out.println("Removal cancelled.");
-            return;
-        }
-
-        storageService.removeCompany(name);
-        System.out.println("Company removed successfully!");
+        storage.deleteAllCompanies();
+        System.out.println("All companies deleted.");
     }
 
     private void cleanup() {
         try {
-            storageService.close();
+            storage.close();
             scanner.close();
         } catch (Exception e) {
-            System.out.println("Error closing storage: " + e.getMessage());
+            // Ignore cleanup errors
         }
+    }
+
+    /** Parse int from string, return default if invalid */
+    private int parseIntOrDefault(String s, int defaultValue) {
+        try {
+            return Integer.parseInt(s.trim());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    /** Truncate string to max length with ellipsis */
+    private String truncate(String s, int maxLen) {
+        if (s == null) return "";
+        if (s.length() <= maxLen) return s;
+        return s.substring(0, maxLen - 3) + "...";
     }
 
     public static void main(String[] args) {
         try {
-            App app = new App();
-            app.run();
+            new App().run();
         } catch (Exception e) {
-            System.out.println("Failed to initialize storage: " + e.getMessage());
+            System.err.println("Failed to start: " + e.getMessage());
             e.printStackTrace();
         }
     }

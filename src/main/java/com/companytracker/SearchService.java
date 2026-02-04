@@ -6,217 +6,218 @@ import com.google.gson.JsonParser;
 import io.github.cdimascio.dotenv.Dotenv;
 import okhttp3.*;
 
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 
+/**
+ * Service for searching company websites using LangSearch API.
+ * Uses strict matching to ensure the URL domain contains all words from the company name.
+ */
 public class SearchService {
     private final OkHttpClient client;
-    private String apiKey;
-    private String apiUrl;
-    private String freshness;
-    private boolean summary;
-    private int resultsCount;
+    private final String apiKey;
 
-    private static final String DEFAULT_API_URL = "https://api.langsearch.com/v1/web-search";
+    private static final String API_URL = "https://api.langsearch.com/v1/web-search";
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
+
+    // Common Swedish company suffixes to ignore when matching
+    private static final String[] IGNORE_WORDS = {
+        "ab", "hb", "kb", "ek", "for", "i", "och", "aktiebolag", "handelsbolag"
+    };
 
     public SearchService() {
         this.client = new OkHttpClient();
-        loadConfiguration();
+        this.apiKey = loadApiKey();
     }
 
-    public SearchService(String apiKey) {
-        this.client = new OkHttpClient();
-        this.apiKey = apiKey;
-        this.apiUrl = DEFAULT_API_URL;
-        this.freshness = "noLimit";
-        this.summary = true;
-        this.resultsCount = 10;
-    }
-
-    /**
-     * Load configuration from environment variables (.env.local or .env) first,
-     * then fall back to config.properties if not found
-     */
-    private void loadConfiguration() {
-        // Try to load from .env.local first, then .env
-        Dotenv dotenv = null;
+    /** Load API key from .env.local or .env file */
+    private String loadApiKey() {
         try {
-            dotenv = Dotenv.configure()
+            // Try .env.local first
+            Dotenv dotenv = Dotenv.configure()
                     .filename(".env.local")
                     .ignoreIfMissing()
                     .load();
+            String key = dotenv.get("LANGSEARCH_API_KEY");
 
-            // If .env.local doesn't exist or doesn't have the key, try .env
-            if (dotenv.get("LANGSEARCH_API_KEY") == null) {
+            // Fall back to .env
+            if (key == null) {
                 dotenv = Dotenv.configure()
                         .filename(".env")
                         .ignoreIfMissing()
                         .load();
+                key = dotenv.get("LANGSEARCH_API_KEY");
+            }
+
+            if (key != null && !key.equals("your_api_key_here")) {
+                return key;
             }
         } catch (Exception e) {
-            // Dotenv not found, will try config.properties next
+            // Ignore, will return null
         }
-
-        // Load from environment variables first
-        if (dotenv != null && dotenv.get("LANGSEARCH_API_KEY") != null) {
-            this.apiKey = dotenv.get("LANGSEARCH_API_KEY");
-            this.apiUrl = dotenv.get("LANGSEARCH_API_URL", DEFAULT_API_URL);
-            this.freshness = dotenv.get("LANGSEARCH_FRESHNESS", "noLimit");
-            this.summary = Boolean.parseBoolean(dotenv.get("LANGSEARCH_SUMMARY", "true"));
-            this.resultsCount = Integer.parseInt(dotenv.get("LANGSEARCH_RESULTS_COUNT", "10"));
-
-            if (this.apiKey.equals("your_api_key_here")) {
-                System.out.println("Warning: Please update LANGSEARCH_API_KEY in .env.local");
-                this.apiKey = null;
-            }
-        } else {
-            // Fall back to config.properties
-            loadFromPropertiesFile();
-        }
+        System.out.println("Warning: LANGSEARCH_API_KEY not found in .env.local or .env");
+        return null;
     }
 
     /**
-     * Load configuration from config.properties file (fallback method)
+     * Search for a company's website.
+     * Returns the first URL from search results that matches ALL words in the company name.
+     *
+     * @param companyName The company name to search for
+     * @return SearchResult with website URL if found, or empty result if no match
      */
-    private void loadFromPropertiesFile() {
-        Properties properties = new Properties();
-
-        try (InputStream input = new FileInputStream("config.properties")) {
-            properties.load(input);
-            this.apiKey = properties.getProperty("langsearch.api.key");
-            this.apiUrl = properties.getProperty("langsearch.api.url", DEFAULT_API_URL);
-            this.freshness = properties.getProperty("langsearch.freshness", "noLimit");
-            this.summary = Boolean.parseBoolean(properties.getProperty("langsearch.summary", "true"));
-            this.resultsCount = Integer.parseInt(properties.getProperty("langsearch.results.count", "10"));
-
-            if (this.apiKey == null || this.apiKey.equals("YOUR-API-KEY-HERE")) {
-                System.out.println("Warning: LangSearch API key not configured in config.properties");
-                this.apiKey = null;
-            }
-        } catch (IOException e) {
-            System.out.println("Warning: No configuration found. Using mock search results.");
-            System.out.println("To use LangSearch API:");
-            System.out.println("1. Copy .env.example to .env.local and add your API key, OR");
-            System.out.println("2. Copy config.properties.example to config.properties and add your API key");
-            System.out.println("Get your free API key from: https://langsearch.com/api-keys");
-            this.apiKey = null;
-        }
-    }
-
-    /**
-     * Search for a company using LangSearch API
-     * LangSearch provides free web search API optimized for AI applications
-     * Get your free API key from: https://langsearch.com/api-keys
-     */
-    public SearchResult searchCompanyWebsite(String companyName) throws IOException {
+    public SearchResult search(String companyName) throws IOException {
         if (apiKey == null) {
-            System.out.println("Warning: API key not configured. Using mock search results.");
-            return mockSearch(companyName);
+            return new SearchResult(null); // No API key configured
         }
 
-        // Build search query
-        String searchQuery = companyName + " company website";
+        // Call LangSearch API
+        List<String> urls = callSearchApi(companyName + " website");
 
-        // Create JSON request body
-        JsonObject requestBody = new JsonObject();
-        requestBody.addProperty("query", searchQuery);
-        requestBody.addProperty("freshness", freshness);
-        requestBody.addProperty("summary", summary);
-        requestBody.addProperty("count", resultsCount);
+        // Find URL that matches the company name
+        String matchedUrl = findMatchingUrl(companyName, urls);
 
-        RequestBody body = RequestBody.create(requestBody.toString(), JSON);
+        return new SearchResult(matchedUrl);
+    }
+
+    /** Call LangSearch API and return list of URLs from results */
+    private List<String> callSearchApi(String query) throws IOException {
+        JsonObject body = new JsonObject();
+        body.addProperty("query", query);
+        body.addProperty("freshness", "noLimit");
+        body.addProperty("count", 10);
 
         Request request = new Request.Builder()
-                .url(apiUrl)
+                .url(API_URL)
                 .addHeader("Authorization", "Bearer " + apiKey)
                 .addHeader("Content-Type", "application/json")
-                .post(body)
+                .post(RequestBody.create(body.toString(), JSON))
                 .build();
 
         try (Response response = client.newCall(request).execute()) {
             if (!response.isSuccessful()) {
-                String errorBody = response.body() != null ? response.body().string() : "No error details";
-                throw new IOException("LangSearch API error (HTTP " + response.code() + "): " + errorBody);
+                throw new IOException("API error: " + response.code());
             }
-
-            String responseBody = response.body().string();
-            return parseSearchResponse(responseBody);
+            return parseUrls(response.body().string());
         }
     }
 
-    private SearchResult parseSearchResponse(String jsonResponse) {
-        JsonObject json = JsonParser.parseString(jsonResponse).getAsJsonObject();
-        SearchResult result = new SearchResult();
-        List<String> allUrls = new ArrayList<>();
+    /** Parse URL list from API response JSON */
+    private List<String> parseUrls(String json) {
+        List<String> urls = new ArrayList<>();
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
 
-        // LangSearch wraps the response in a "data" object
-        JsonObject data = json;
-        if (json.has("data") && !json.get("data").isJsonNull()) {
-            data = json.getAsJsonObject("data");
-        }
+        // LangSearch wraps response in "data" object
+        JsonObject data = root.has("data") ? root.getAsJsonObject("data") : root;
 
-        if (data.has("webPages") && data.getAsJsonObject("webPages").has("value")) {
-            JsonArray results = data.getAsJsonObject("webPages").getAsJsonArray("value");
-
-            for (int i = 0; i < results.size(); i++) {
-                JsonObject item = results.get(i).getAsJsonObject();
-                String url = item.get("url").getAsString();
-                allUrls.add(url);
-
-                if (i == 0) {
-                    result.setHasWebsite(true);
-                    result.setWebsiteUrl(url);
+        if (data.has("webPages")) {
+            JsonObject webPages = data.getAsJsonObject("webPages");
+            if (webPages.has("value")) {
+                JsonArray results = webPages.getAsJsonArray("value");
+                for (int i = 0; i < results.size(); i++) {
+                    urls.add(results.get(i).getAsJsonObject().get("url").getAsString());
                 }
             }
         }
-
-        result.setAllUrls(allUrls);
-        return result;
+        return urls;
     }
 
-    private SearchResult mockSearch(String companyName) {
-        SearchResult result = new SearchResult();
-        String mockUrl = "https://www." + companyName.toLowerCase().replace(" ", "") + ".com";
-        result.setHasWebsite(true);
-        result.setWebsiteUrl(mockUrl);
-        List<String> mockUrls = new ArrayList<>();
-        mockUrls.add(mockUrl);
-        result.setAllUrls(mockUrls);
-        return result;
-    }
-
-    public static class SearchResult {
-        private boolean hasWebsite;
-        private String websiteUrl;
-        private List<String> allUrls = new ArrayList<>();
-
-        public boolean isHasWebsite() {
-            return hasWebsite;
+    /**
+     * Find URL where domain contains ALL significant words from company name.
+     * Example: "Jakob Snickare" matches "jakobsnickare.se" but NOT "snickarenacka.se"
+     */
+    private String findMatchingUrl(String companyName, List<String> urls) {
+        // Extract significant words from company name
+        List<String> words = getSignificantWords(companyName);
+        if (words.isEmpty()) {
+            return null;
         }
 
-        public void setHasWebsite(boolean hasWebsite) {
-            this.hasWebsite = hasWebsite;
+        // Check each URL for a match
+        for (String url : urls) {
+            String domain = extractDomain(url);
+            if (domainContainsAllWords(domain, words)) {
+                return url;
+            }
+        }
+        return null;
+    }
+
+    /** Extract significant words from company name (ignoring common suffixes).
+     *  Swedish chars are normalized (å→a, ä→a, ö→o) so "Frisör" matches "frisor.se" */
+    private List<String> getSignificantWords(String companyName) {
+        List<String> words = new ArrayList<>();
+        String[] parts = normalizeSwedish(companyName.toLowerCase())
+                .replaceAll("[^a-z0-9\\s]", "")
+                .split("\\s+");
+
+        for (String word : parts) {
+            if (word.length() > 1 && !isIgnoredWord(word)) {
+                words.add(word);
+            }
+        }
+        return words;
+    }
+
+    /** Replace Swedish chars with ASCII equivalents */
+    private String normalizeSwedish(String text) {
+        return text.replace("å", "a")
+                   .replace("ä", "a")
+                   .replace("ö", "o")
+                   .replace("é", "e")
+                   .replace("ü", "u");
+    }
+
+    /** Check if word is a common suffix that should be ignored */
+    private boolean isIgnoredWord(String word) {
+        for (String ignored : IGNORE_WORDS) {
+            if (word.equals(ignored)) return true;
+        }
+        return false;
+    }
+
+    /** Extract domain from URL (without protocol, www, and TLD) */
+    private String extractDomain(String url) {
+        String domain = url.toLowerCase()
+                .replaceAll("^https?://", "")
+                .replaceAll("^www\\.", "");
+
+        // Remove path
+        int slash = domain.indexOf('/');
+        if (slash > 0) domain = domain.substring(0, slash);
+
+        // Remove TLD
+        int dot = domain.lastIndexOf('.');
+        if (dot > 0) domain = domain.substring(0, dot);
+
+        return domain;
+    }
+
+    /** Check if domain contains all the given words */
+    private boolean domainContainsAllWords(String domain, List<String> words) {
+        for (String word : words) {
+            if (!domain.contains(word)) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Result of a website search.
+     */
+    public static class SearchResult {
+        private final String websiteUrl;
+
+        public SearchResult(String websiteUrl) {
+            this.websiteUrl = websiteUrl;
+        }
+
+        public boolean hasWebsite() {
+            return websiteUrl != null;
         }
 
         public String getWebsiteUrl() {
             return websiteUrl;
-        }
-
-        public void setWebsiteUrl(String websiteUrl) {
-            this.websiteUrl = websiteUrl;
-        }
-
-        public List<String> getAllUrls() {
-            return allUrls;
-        }
-
-        public void setAllUrls(List<String> allUrls) {
-            this.allUrls = allUrls;
         }
     }
 }
